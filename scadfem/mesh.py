@@ -30,7 +30,7 @@ def read_msh(path):
     return nodes, tets
 
 
-GMSH_TIMEOUT = 60
+GMSH_TIMEOUT = 20
 
 
 def flat_tets(nodes, tets, h):
@@ -48,12 +48,13 @@ def flat_tets(nodes, tets, h):
 def mesh_component(tris, name, work, h):
     """Mesh one closed triangle surface. Returns nodes, tets and the size actually used."""
     r = None
+    stuck = False                           # reparametrization timed out once: it will again
     for _ in range(3):
         for edge in (2, 1.5, 1, 3):           # gmsh fails now and then for one particular surface mesh
             # openscad's sliver triangles make gmsh fail unless the long edges are bisected first
             geom.write_stl(f"{work}/{name}.stl", geom.refine(tris, edge * h))
             # reparametrizing the surface can loop forever on some shapes: bound it, then keep the triangles as they are
-            for reparam in (1, 0):
+            for reparam in ((0,) if stuck else (1, 0)):
                 with open(f"{work}/{name}.geo", "w") as f:
                     f.write(f'Merge "{name}.stl";\nMesh.MeshSizeMax = {h}; Mesh.MeshSizeMin = {h / 3};\n'
                             f"ClassifySurfaces{{ 40*Pi/180, 1, {reparam}, 40*Pi/180 }};\nCreateGeometry;\n"
@@ -64,6 +65,7 @@ def mesh_component(tris, name, work, h):
                     r = subprocess.run(["gmsh", "-3", "-nopopup", f"{name}.geo", "-o", f"{name}.msh"], cwd=work,
                                        capture_output=True, text=True, timeout=GMSH_TIMEOUT)
                 except subprocess.TimeoutExpired:
+                    stuck = stuck or reparam == 1
                     print(f"  {name}: gmsh timed out after {GMSH_TIMEOUT}s (edge {edge}h, reparametrize={reparam}), retrying",
                           flush=True)
                     continue

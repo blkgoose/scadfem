@@ -13,6 +13,10 @@ Results go to `<scad folder>/results/<name>[_<defines>][_quick]/` (`result.msh`,
 `result.msh` has a physical group per part (toggle them in gmsh), von Mises per element,
 the displacement, and the supports/loads as point groups so you can check where they landed.
 
+Tuning a part's element size: `--h body=5` overrides its `h=` without editing the file, and `--mesh-only`
+stops after meshing and contact detection (no CalculiX) so the `N nodes tied` lines tell you whether
+the ties connect.
+
 ## Tags
 
 `part`, `fixed` and `load` tag the `module name(...)` definition that follows; the tool renders `name();` alone

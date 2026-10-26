@@ -1,4 +1,4 @@
-"""scadfem model.scad [-D name=value ...] [--quick] [--mesh S] [--no-contact] [-o DIR] [--work DIR] [--open]"""
+"""scadfem model.scad [-D name=value ...] [--quick] [--h PART=SIZE] [--mesh-only] [--mesh S] [--no-contact] [-o DIR] [--work DIR] [--open]"""
 import argparse, math, os, re, shutil, subprocess, sys, tempfile
 from concurrent.futures import ThreadPoolExecutor
 
@@ -29,6 +29,9 @@ def main(argv=None):
     ap.add_argument("--quick", action="store_true", help="mesh twice as coarse, frictionless contacts left out")
     ap.add_argument("--mesh", type=float, default=1.0, metavar="S", help="scale every element size (0.5 = finer)")
     ap.add_argument("--no-contact", action="store_true", help="treat frictionless contacts as free")
+    ap.add_argument("--h", dest="hs", action="append", default=[], metavar="PART=SIZE",
+                    help="override the element size of a part without editing the file (e.g. --h body=5)")
+    ap.add_argument("--mesh-only", action="store_true", help="mesh and detect contacts, then stop before CalculiX")
     ap.add_argument("--parse-only", action="store_true", help="list the tags found and stop")
     ap.add_argument("-o", "--out", help="result folder (default <scad folder>/results/<name>)")
     ap.add_argument("--work", help="scratch folder (default: a temp dir)")
@@ -44,6 +47,12 @@ def main(argv=None):
     regions = [t for t in all_tags if t.kind in ("fixed", "load")]
     unique(parts)
     unique(regions)
+    for spec in a.hs:
+        name, _, val = spec.partition("=")
+        hit = [t for t in parts if t.name == name]
+        if not hit or not val:
+            sys.exit(f"--h {spec}: expected PART=SIZE with PART one of {', '.join(t.name for t in parts)}")
+        hit[0].args["h"] = float(val)
     mats = materials.table(all_tags)
     opts = {k: v for t in all_tags if t.kind == "options" for k, v in t.args.items()}
     modes = {}
@@ -124,6 +133,8 @@ def main(argv=None):
     regs = [fem.make_region(asm, t, surfaces[id(t)], tol) for t in regions]
     for r in regs:
         say(f"  {r.kind} {r.name}: {len(r.nodes)} nodes")
+    if a.mesh_only:
+        return
     fem.write_inp(f"{work}/model.inp", asm, pairs, regs, tol, opts.get("contact_k"), a.quick)
 
     env = dict(os.environ, OMP_NUM_THREADS=threads, CCX_NPROC_EQUATION_SOLVER=threads)
