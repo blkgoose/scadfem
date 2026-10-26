@@ -30,25 +30,37 @@ def read_msh(path):
     return nodes, tets
 
 
+GMSH_TIMEOUT = 60
+
+
 def mesh_component(tris, name, work, h):
     """Mesh one closed triangle surface. Returns nodes, tets and the size actually used."""
+    r = None
     for _ in range(3):
         for edge in (2, 1.5, 1, 3):           # gmsh fails now and then for one particular surface mesh
             # openscad's sliver triangles make gmsh fail unless the long edges are bisected first
             geom.write_stl(f"{work}/{name}.stl", geom.refine(tris, edge * h))
-            with open(f"{work}/{name}.geo", "w") as f:
-                f.write(f'Merge "{name}.stl";\nMesh.MeshSizeMax = {h}; Mesh.MeshSizeMin = {h / 3};\n'
-                        "ClassifySurfaces{ 40*Pi/180, 1, 1, 40*Pi/180 };\nCreateGeometry;\n"
-                        "Surface Loop(1) = Surface{:};\nVolume(1) = {1};\n"
-                        "Mesh.ElementOrder = 2; Mesh.SecondOrderLinear = 1; Mesh.Algorithm3D = 1;\n"
-                        "Mesh.MshFileVersion = 2.2;\n")
-            r = subprocess.run(["gmsh", "-3", "-nopopup", f"{name}.geo", "-o", f"{name}.msh"], cwd=work,
-                               capture_output=True, text=True)
-            if r.returncode == 0:
-                nodes, tets = read_msh(f"{work}/{name}.msh")
-                return nodes, tets, h
+            # reparametrizing the surface can loop forever on some shapes: bound it, then keep the triangles as they are
+            for reparam in (1, 0):
+                with open(f"{work}/{name}.geo", "w") as f:
+                    f.write(f'Merge "{name}.stl";\nMesh.MeshSizeMax = {h}; Mesh.MeshSizeMin = {h / 3};\n'
+                            f"ClassifySurfaces{{ 40*Pi/180, 1, {reparam}, 40*Pi/180 }};\nCreateGeometry;\n"
+                            "Surface Loop(1) = Surface{:};\nVolume(1) = {1};\n"
+                            "Mesh.ElementOrder = 2; Mesh.SecondOrderLinear = 1; Mesh.Algorithm3D = 1;\n"
+                            "Mesh.MshFileVersion = 2.2;\n")
+                try:
+                    r = subprocess.run(["gmsh", "-3", "-nopopup", f"{name}.geo", "-o", f"{name}.msh"], cwd=work,
+                                       capture_output=True, text=True, timeout=GMSH_TIMEOUT)
+                except subprocess.TimeoutExpired:
+                    print(f"  {name}: gmsh timed out after {GMSH_TIMEOUT}s (edge {edge}h, reparametrize={reparam}), retrying",
+                          flush=True)
+                    continue
+                if r.returncode == 0:
+                    nodes, tets = read_msh(f"{work}/{name}.msh")
+                    return nodes, tets, h
         h *= 0.93
-    raise RuntimeError(f"gmsh could not mesh {name}:\n{(r.stdout + r.stderr)[-800:]}")
+    raise RuntimeError(f"gmsh could not mesh {name} (last attempt: "
+                       f"{'timed out' if r is None else 'failed'}):\n{'' if r is None else (r.stdout + r.stderr)[-800:]}")
 
 
 @dataclass
