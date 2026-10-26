@@ -53,7 +53,10 @@ def refine(tris, max_edge):
                 ids[k] = len(verts)
                 verts.append(p)
             row.append(ids[k])
-        tri.append(row)
+        if len(set(row)) == 3:          # rounding can fuse two corners of a sliver: drop it
+            tri.append(row)
+    if not tri:
+        raise ValueError("every triangle of this surface is degenerate (zero size or fused by rounding)")
     length = lambda a, b: math.dist(verts[a], verts[b])
     edges = {}
     for n, (a, b, c) in enumerate(tri):

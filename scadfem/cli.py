@@ -93,8 +93,20 @@ def main(argv=None):
             lo_hi = geom.bbox(comp)
             h = float(t.args.get("h", min(base_h, min(hi - lo for lo, hi in lo_hi) / 1.5))) * scale
             jobs.append((t, k, comp, h))
-    with ThreadPoolExecutor(max_workers=os.cpu_count()) as pool:
-        meshes = list(pool.map(lambda j: mesh.mesh_component(j[2], f"p{j[0].line}_{j[1]}", work, j[3]), jobs))
+    def run_job(j):
+        t, k, comp, h = j
+        try:
+            return mesh.mesh_component(comp, f"p{t.line}_{k}", work, h)
+        except Exception as e:
+            raise RuntimeError(f"{a.scad}:{t.line}: meshing part '{t.name}' (component {k}, "
+                               f"{len(comp)} triangles, h={h:.3g}) failed: {type(e).__name__}: {e}\n"
+                               f"  intermediate files are in {work}") from e
+
+    try:
+        with ThreadPoolExecutor(max_workers=os.cpu_count()) as pool:
+            meshes = list(pool.map(run_job, jobs))
+    except RuntimeError as e:
+        sys.exit(str(e))
     asm = mesh.Assembly()
     for (t, k, comp, h), (nodes, tets, used_h) in zip(jobs, meshes):
         part = mesh.Part(t.name, mats[str(t.args["material"]).lower()])
