@@ -33,16 +33,20 @@ def read_msh(path):
 GMSH_TIMEOUT = 20
 
 
-def flat_tets(nodes, tets, h):
-    """Count tets whose volume is ~0 or negative: CalculiX stops on a nonpositive jacobian."""
-    bad = 0
+def split_flat(nodes, tets, h):
+    """Drop tets of ~zero volume (CalculiX stops on them, and they hold no material).
+
+    Returns the good tets and how many tets are really inverted, which cannot be dropped."""
+    good, inverted = [], 0
     for t in tets:
         a, b, c, d = (nodes[i] for i in t[:4])
         u, v, w = ([q[k] - a[k] for k in range(3)] for q in (b, c, d))
-        det = u[0]*(v[1]*w[2] - v[2]*w[1]) - u[1]*(v[0]*w[2] - v[2]*w[0]) + u[2]*(v[0]*w[1] - v[1]*w[0])
-        if det / 6 <= 1e-7 * h ** 3:
-            bad += 1
-    return bad
+        vol = (u[0]*(v[1]*w[2] - v[2]*w[1]) - u[1]*(v[0]*w[2] - v[2]*w[0]) + u[2]*(v[0]*w[1] - v[1]*w[0])) / 6
+        if vol > 1e-7 * h ** 3:
+            good.append(t)
+        elif vol < -1e-7 * h ** 3:
+            inverted += 1
+    return good, inverted
 
 
 def mesh_component(tris, name, work, h):
@@ -71,10 +75,12 @@ def mesh_component(tris, name, work, h):
                     continue
                 if r.returncode == 0:
                     nodes, tets = read_msh(f"{work}/{name}.msh")
-                    flat = flat_tets(nodes, tets, h)
-                    if not flat:
-                        return nodes, tets, h
-                    print(f"  {name}: gmsh made {flat} flat/inverted tets (edge {edge}h, reparametrize={reparam}), retrying",
+                    good, inverted = split_flat(nodes, tets, h)
+                    if not inverted:
+                        if len(good) < len(tets):
+                            print(f"  {name}: dropped {len(tets) - len(good)} zero-volume tets", flush=True)
+                        return nodes, good, h
+                    print(f"  {name}: gmsh made {inverted} inverted tets (edge {edge}h, reparametrize={reparam}), retrying",
                           flush=True)
         h *= 0.93
     raise RuntimeError(f"gmsh could not mesh {name} (last attempt: "
