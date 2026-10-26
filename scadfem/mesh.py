@@ -33,6 +33,18 @@ def read_msh(path):
 GMSH_TIMEOUT = 60
 
 
+def flat_tets(nodes, tets, h):
+    """Count tets whose volume is ~0 or negative: CalculiX stops on a nonpositive jacobian."""
+    bad = 0
+    for t in tets:
+        a, b, c, d = (nodes[i] for i in t[:4])
+        u, v, w = ([q[k] - a[k] for k in range(3)] for q in (b, c, d))
+        det = u[0]*(v[1]*w[2] - v[2]*w[1]) - u[1]*(v[0]*w[2] - v[2]*w[0]) + u[2]*(v[0]*w[1] - v[1]*w[0])
+        if det / 6 <= 1e-7 * h ** 3:
+            bad += 1
+    return bad
+
+
 def mesh_component(tris, name, work, h):
     """Mesh one closed triangle surface. Returns nodes, tets and the size actually used."""
     r = None
@@ -47,7 +59,7 @@ def mesh_component(tris, name, work, h):
                             f"ClassifySurfaces{{ 40*Pi/180, 1, {reparam}, 40*Pi/180 }};\nCreateGeometry;\n"
                             "Surface Loop(1) = Surface{:};\nVolume(1) = {1};\n"
                             "Mesh.ElementOrder = 2; Mesh.SecondOrderLinear = 1; Mesh.Algorithm3D = 1;\n"
-                            "Mesh.MshFileVersion = 2.2;\n")
+                            "Mesh.MshFileVersion = 2.2;\n" + ("" if reparam else "Mesh.OptimizeNetgen = 1;\n"))
                 try:
                     r = subprocess.run(["gmsh", "-3", "-nopopup", f"{name}.geo", "-o", f"{name}.msh"], cwd=work,
                                        capture_output=True, text=True, timeout=GMSH_TIMEOUT)
@@ -57,7 +69,11 @@ def mesh_component(tris, name, work, h):
                     continue
                 if r.returncode == 0:
                     nodes, tets = read_msh(f"{work}/{name}.msh")
-                    return nodes, tets, h
+                    flat = flat_tets(nodes, tets, h)
+                    if not flat:
+                        return nodes, tets, h
+                    print(f"  {name}: gmsh made {flat} flat/inverted tets (edge {edge}h, reparametrize={reparam}), retrying",
+                          flush=True)
         h *= 0.93
     raise RuntimeError(f"gmsh could not mesh {name} (last attempt: "
                        f"{'timed out' if r is None else 'failed'}):\n{'' if r is None else (r.stdout + r.stderr)[-800:]}")
