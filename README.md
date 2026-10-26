@@ -9,7 +9,7 @@ ccx (CalculiX) and openscad on the PATH of whoever runs it.
     ./main.sh examples/cantilever.scad                          # from the checkout, inside the direnv/flake shell
     scadfem model.scad -D rod_length=100 --quick --open
 
-Results go to `<scad folder>/results/<name>[_<defines>][_quick]/` (`result.msh`, `summary.txt`);
+Results go to `<scad folder>/results/<name>[_<defines>][_quick]/` (`result.msh`, `result.msh.opt`, `summary.txt`);
 `result.msh` has a physical group per part (toggle them in gmsh), von Mises per element,
 the displacement, and the supports/loads as point groups so you can check where they landed.
 

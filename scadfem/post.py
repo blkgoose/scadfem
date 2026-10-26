@@ -64,7 +64,26 @@ def write_view(path, asm, regions, disp, per_ip):
         f.write("$EndElements\n$ElementData\n1\n\"von Mises [MPa]\"\n1\n0.0\n3\n0\n1\n%d\n" % len(asm.elem))
         for e in asm.elem:
             f.write("%d %.4f\n" % (e, mean[e]))
-        f.write("$EndElementData\n$NodeData\n1\n\"displacement [mm]\"\n1\n0.0\n3\n0\n3\n%d\n" % len(used))
+        f.write("$EndElementData\n")
+        ratio = [(e, mean[e] / asm.parts[nm].material.yield_) for e, (nm, _) in asm.elem.items()
+                 if asm.parts[nm].material.yield_]
+        if ratio:
+            f.write("$ElementData\n1\n\"von Mises / yield\"\n1\n0.0\n3\n0\n1\n%d\n" % len(ratio))
+            for e, r in ratio:
+                f.write("%d %.5f\n" % (e, r))
+            f.write("$EndElementData\n")
+        f.write("$NodeData\n1\n\"displacement [mm]\"\n1\n0.0\n3\n0\n3\n%d\n" % len(used))
         for n in used:
             f.write("%d %.6f %.6f %.6f\n" % ((ids[n],) + tuple(disp[n])))
         f.write("$EndNodeData\n")
+    # gmsh loads <file>.opt by itself: fixed ranges, so singular peaks do not turn everything blue
+    hi = pct([m for v in per_ip.values() for m in v], .99)
+    views = ["von Mises [MPa]"] + (["von Mises / yield"] if ratio else []) + ["displacement [mm]"]
+    shown = 1 if ratio else 0
+    with open(path + ".opt", "w") as f:
+        for k, name in enumerate(views):
+            f.write(f"View[{k}].Visible = {int(k == shown)};\n")
+            if name.startswith("von Mises"):
+                top = 1 if "yield" in name else hi
+                f.write(f"View[{k}].RangeType = 2; View[{k}].CustomMin = 0; View[{k}].CustomMax = {top:g};\n"
+                        f"View[{k}].SaturateValues = 1;\n")

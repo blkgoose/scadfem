@@ -118,6 +118,9 @@ def main(argv=None):
     for p in pairs:
         extra = f", {len(p.slave_nodes)} nodes tied" if p.mode == "tie" else ""
         say(f"  {p.slave} touches {p.master}: {p.mode}{extra}")
+        if p.mode == "tie" and not p.slave_nodes:
+            say(f"  WARNING: no node of {p.slave} lies on {p.master} (tol={tol:g}): they are NOT connected."
+                f" Refine with h=... on the part or --mesh 0.5, or raise tol in //@sim options")
     regs = [fem.make_region(asm, t, surfaces[id(t)], tol) for t in regions]
     for r in regs:
         say(f"  {r.kind} {r.name}: {len(r.nodes)} nodes")
@@ -135,7 +138,9 @@ def main(argv=None):
     for p in asm.parts.values():
         v = [m for e in p.elems for m in per_ip.get(e, [])]
         y = p.material.yield_
-        sf = f"   yield {y:g} -> safety {y / post.pct(v, .99):.2f} (p99) / {y / max(v):.2f} (max)" if y else ""
+        sf = f"   yield {y:g} -> safety {y / post.pct(v, .99):.2f} (p99) / {y / max(v):.2f} (max)" if y and max(v) > 0 else ""
+        if max(v) == 0:
+            sf = "   NO STRESS: the part carries no load (disconnected from the supports?)"
         say(f"  {p.name:12s} max {max(v):8.2f}   p99 {post.pct(v, .99):8.2f}   median {post.pct(v, .5):7.3f}{sf}")
     for pr in pairs:
         if pr.mode != "tie" or not pr.slave_nodes:
